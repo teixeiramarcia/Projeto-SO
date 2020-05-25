@@ -1,45 +1,47 @@
 #include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <stdlib.h>
 
+#define READWRITE 0666
 
+char *randomPipeName()
+{
+        int string_length = 10;
+        char *string = malloc((string_length + 1) * sizeof(char));
 
+        srand(time(NULL));
 
-int main(int argc, char** argv) {
+        for (int i = 0; i < string_length; ++i) {
+                string[i] = 'a' + rand() % 24;
+        }
 
-	int fds[2];
-	
-	char* server = "/tmp/server";
-	char* cliente = "/tmp/cliente";
-	
-	int fd;
-	int rd;
- 	
-	write(1,"Welcome folk\n",strlen("Welcome folk\n"));	
- 	
-	mkfifo(cliente,0666);
-	
-	fds[0] = open(server, O_RDONLY);
-	fds[1] = open(cliente, O_WRONLY);
+        return string;
+}
 
-	char buffer[80];
+void createPipes(char *pipeName, char *pipeIn, char *pipeOut)
+{
+        strcat(pipeIn, "/tmp/");
+        strcat(pipeIn, pipeName);
+        strcat(pipeIn, "-in");
+        strcat(pipeOut, "/tmp/");
+        strcat(pipeOut, pipeName);
+        strcat(pipeOut, "-out");
 
-	write(fds[1],"cliente",strlen(cliente));
-	perror("erro : meh");
-	read(fds[0],buffer,sizeof(buffer));
-	perror("reee");
-	write(fds[1],buffer,sizeof(buffer));
+        mkfifo(pipeIn, READWRITE);
+        mkfifo(pipeOut, READWRITE);
+}
 
-	close(fds[0]);
-	close(fds[1]);
-	unlink(cliente);
+int main(int argc, char **argv)
+{
+        char *pipeName = randomPipeName();
 
-	
+        char pipeIn[18] = "";
+        char pipeOut[19] = "";
 
+        createPipes(pipeName, pipeIn, pipeOut);
 
+        free(pipeName);
 
-	return 1;
-
+        return 0;
 }
