@@ -6,9 +6,8 @@
 #include <sys/stat.h>
 
 
-
-
-int main(int argc, char** argv) {
+int main(int argc, char **argv)
+{
 /*
 	if (!strcmp(argv[1],"-i")){
 		// Introduction 
@@ -36,9 +35,9 @@ int main(int argc, char** argv) {
 
 
 
-	
 
 
-	return 1;
+
+        return 1;
 
 }
