@@ -5,10 +5,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-
+/*
 int main(int argc, char **argv)
 {
-/*
 	if (!strcmp(argv[1],"-i")){
 		// Introduction 
 		write(1,"Alright folk, you are needing help right? Here's a list of avalaible commands!\n\n",strlen("Alright folk, you are needing help right? Here's a list of avalaible commands!\n\n"));
@@ -31,13 +30,7 @@ int main(int argc, char **argv)
 		// Historico
 		write (1," -r, historico						Histórico de tarefas terminadas\n",strlen(" -r, historico						Histórico de tarefas terminadas\n"));	
 	}
-*/
-
-
-
-
-
-
         return 1;
 
 }
+ */
