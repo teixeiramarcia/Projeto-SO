@@ -20,9 +20,8 @@ else
 endif
 
 #Compiler options
-CFLAGS = -W
-override CFLAGS      += -Wall -Wextra -Wparentheses -Wmissing-declarations -Wunreachable-code -Wunused
-override CFLAGS      += -Wmissing-field-initializers -Wmissing-prototypes -Wswitch-enum
+override CFLAGS      += -Wall -Wextra -Wparentheses -Wunreachable-code -Wunused
+override CFLAGS      += -Wmissing-field-initializers -Wswitch-enum
 override CFLAGS      += -Wredundant-decls -Wshadow -Wswitch-default -Wuninitialized
 override CFLAGS      += $(EXEC_TYPE)
 

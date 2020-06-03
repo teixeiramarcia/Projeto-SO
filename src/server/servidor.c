@@ -13,9 +13,9 @@ void executeCommands(char *buf, int size, int fdOut)
         write(fdOut, buf, size);
 }
 
-void handleClient(char clientPipes[39]) {
+void handleClient(char clientPipes[39])
+{
         write(1, "\n\nA client connected\n", 21);
-
         char* line = strtok(clientPipes, " ");
         char* out = malloc(20 * sizeof(char));
         strcat(out, strdup(line));
@@ -49,7 +49,7 @@ void handleClient(char clientPipes[39]) {
         free(out);
 }
 
-int main(int argc, char **argv)
+int main()
 {
         write(1, "Starting server\n", 16);
         char *serverPipeName = "/tmp/server";

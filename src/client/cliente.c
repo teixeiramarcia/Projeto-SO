@@ -37,7 +37,7 @@ void createPipes(char *pipeName, char *pipeIn, char *pipeOut)
 
 ssize_t readln(int fildes, char *buf, size_t nbyte)
 {
-        for (int i = 0; i < nbyte; i++) {
+        for (size_t i = 0; i < nbyte; i++) {
                 char bufI;
                 int rd = read (fildes, &bufI, 1);
 
@@ -108,7 +108,7 @@ void start(char *in, char *out)
         close(fdOut);
 }
 
-int main(int argc, char **argv)
+int main()
 {
         write(1, "Starting client\n", 16);
         char *pipeName = randomPipeName();
