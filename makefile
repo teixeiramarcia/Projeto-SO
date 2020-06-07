@@ -2,13 +2,13 @@
 SRC = src
 INCLUDE = include
 CC=gcc
-SERVER = ser
-CLIENT = cli
+SERVER = server
+CLIENT = client
 
 #Debug or Release
 DEBUG = -Og -g
 RELEASE = -O3
-DEBUG_MODE ?= 0
+DEBUG_MODE ?= 1
 ifeq ($(DEBUG_MODE),1)
 #   make DEBUG_MODE=1
     EXEC_TYPE = ${DEBUG}
@@ -23,7 +23,7 @@ endif
 override CFLAGS      += -Wall -Wextra -Wparentheses -Wunreachable-code -Wunused
 override CFLAGS      += -Wmissing-field-initializers -Wswitch-enum
 override CFLAGS      += -Wredundant-decls -Wshadow -Wswitch-default -Wuninitialized
-override CFLAGS      += $(EXEC_TYPE)
+override CFLAGS      += $(EXEC_TYPE) -I$(INCLUDE)
 
 # server source files
 SERVER_SRC = $(wildcard $(SRC)/server/*.c)
@@ -44,11 +44,11 @@ all: $(SERVER) $(CLIENT)
 
 #make engine
 $(SERVER): ${SERVER_OBJ} ${COMMON_OBJ}
-	$(CC) ${CFLAGS} -o $(SERVER) -I$(INCLUDE) ${SERVER_OBJ} ${COMMON_OBJ}
+	$(CC) ${CFLAGS} -o $(SERVER) ${SERVER_OBJ} ${COMMON_OBJ}
 
 #make generator
 $(CLIENT): ${CLIENT_OBJ} ${COMMON_OBJ}
-	$(CC) ${CFLAGS} -o $(CLIENT) -I$(INCLUDE) ${CLIENT_OBJ} ${COMMON_OBJ}
+	$(CC) ${CFLAGS} -o $(CLIENT) ${CLIENT_OBJ} ${COMMON_OBJ}
 
 #make clean
 clean: cclean sclean

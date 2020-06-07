@@ -4,123 +4,121 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdio.h>
+
+#include "common/protocol.h"
 
 #define READWRITE 0666
-#define BUFSIZE 1024 * 1024
+#define BUFSIZE 4096
 
-char *randomPipeName()
-{
-        int string_length = 10;
-        char *string = malloc((string_length + 1) * sizeof(char));
+char *randomPipeName() {
+    int string_length = 10;
+    char *string = malloc((string_length + 1) * sizeof(char));
 
-        srand(time(NULL));
+    srand(time(NULL));
 
-        for (int i = 0; i < string_length; ++i) {
-                string[i] = 'a' + rand() % 24;
+    for (int i = 0; i < string_length; ++i) {
+        string[i] = 'a' + rand() % 24;
+    }
+
+    return string;
+}
+
+void createPipes(char *pipeName, char *pipeIn, char *pipeOut) {
+    sprintf(pipeIn, "/tmp/%s-in", pipeName);
+    sprintf(pipeOut, "/tmp/%s-out", pipeName);
+
+    mkfifo(pipeIn, READWRITE);
+    mkfifo(pipeOut, READWRITE);
+}
+
+ssize_t readln(int fildes, char *buf, size_t nbyte) {
+    for (size_t i = 0; i < nbyte; i++) {
+        char bufI;
+        int rd = read(fildes, &bufI, 1);
+
+        if (rd == 0) {
+            return i;
         }
 
-        return string;
-}
-
-void createPipes(char *pipeName, char *pipeIn, char *pipeOut)
-{
-        strcat(pipeIn, "/tmp/");
-        strcat(pipeIn, pipeName);
-        strcat(pipeIn, "-in");
-        strcat(pipeOut, "/tmp/");
-        strcat(pipeOut, pipeName);
-        strcat(pipeOut, "-out");
-
-        mkfifo(pipeIn, READWRITE);
-        mkfifo(pipeOut, READWRITE);
-}
-
-ssize_t readln(int fildes, char *buf, size_t nbyte)
-{
-        for (size_t i = 0; i < nbyte; i++) {
-                char bufI;
-                int rd = read (fildes, &bufI, 1);
-
-                if (rd == 0) {
-                        return i;
-                }
-
-                buf[i] = bufI;
-                if (buf[i] == '\n') {
-                        buf[i + 1] = '\0';
-                        return i + 1;
-                }
+        buf[i] = bufI;
+        if (buf[i] == '\n') {
+            buf[i + 1] = '\0';
+            return i + 1;
         }
+    }
 
-        return nbyte;
+    return nbyte;
 }
 
-void sendToServer(char *input, int fdIn, int fdOut)
-{
-        write(fdOut, input, strlen(input));
+int validOutput(char *output, int size) {
+    return strncmp(output, "Done\n", size) != 0;
+}
 
-        char output[BUFSIZE];
-        int size = readln(fdIn, output, BUFSIZE);
+void sendToServer(char *input, int fdIn, int fdOut) {
+    write(fdOut, input, strlen(input));
 
+    char output[BUFSIZE];
+
+    int size;
+    while ((size = readln(fdIn, output, BUFSIZE)) > 0 && validOutput(output, size)) {
         write(1, output, size);
+    }
 }
 
-void sendCommands(int fdIn, int fdOut)
-{
-        int flagcycle = 1;
-        while(flagcycle) {
-                char input[BUFSIZE];
-                write(1, "# ", 2);
-                int s = readln(0, input, BUFSIZE);
+void sendCommands(int fdIn, int fdOut) {
+    while (1) {
+        char input[BUFSIZE];
+        write(1, "argus$ ", 7);
+        int s = readln(0, input, BUFSIZE);
 
-                if (strcmp(input, "exit\n") == 0 || s < 0) {
-                        flagcycle = 0;
-                }
-
-                sendToServer(input, fdIn, fdOut);
-        }
-}
-
-void start(char *in, char *out)
-{
-        write(1, "Opening server pipe\n", 20);
-        int serverPipe = open("/tmp/server", O_WRONLY);
-        char buffer[39] = "";
-
-        strcat(buffer, in);
-        strcat(buffer, " ");
-        strcat(buffer, out);
-
-        int fdIn = open(in, O_RDWR);
-        int fdOut = open(out, O_RDWR);
-
-        write(1, "Sending pipe names to server\n", 29);
-        write(serverPipe, buffer, 39);
-
-        close(serverPipe);
-
-        char buf[16];
-        if(read(fdIn, buf, 16) > 0) {
-            sendCommands(fdIn, fdOut);
+        if (s < 0 || strcmp(input, "exit\n") == 0) {
+            sendToServer("exit\n", fdIn, fdOut);
+            break;
         }
 
-        close(fdIn);
-        close(fdOut);
+        sendToServer(input, fdIn, fdOut);
+    }
 }
 
-int main()
-{
-        write(1, "Starting client\n", 16);
-        char *pipeName = randomPipeName();
+void start(char *in, char *out) {
+    write(1, "Opening server pipe\n", 20);
+    int serverPipe = open("/tmp/server", O_WRONLY);
+    char buffer[39] = "";
 
-        char pipeIn[18] = "";
-        char pipeOut[19] = "";
+    strcat(buffer, in);
+    strcat(buffer, " ");
+    strcat(buffer, out);
 
-        createPipes(pipeName, pipeIn, pipeOut);
+    int fdIn = open(in, O_RDWR);
+    int fdOut = open(out, O_RDWR);
 
-        start(pipeIn, pipeOut);
+    write(1, "Sending pipe names to server\n", 29);
+    write(serverPipe, buffer, 39);
 
-        free(pipeName);
+    close(serverPipe);
 
-        return 0;
+    char buf[SERVER_ACK_LEN];
+    if (read(fdIn, buf, SERVER_ACK_LEN) > 0 && strncmp(buf, SERVER_ACK, SERVER_ACK_LEN) == 0) {
+        sendCommands(fdIn, fdOut);
+    }
+
+    close(fdIn);
+    close(fdOut);
+}
+
+int main() {
+    write(1, "Starting client\n", 16);
+    char *pipeName = randomPipeName();
+
+    char pipeIn[18] = "";
+    char pipeOut[19] = "";
+
+    createPipes(pipeName, pipeIn, pipeOut);
+
+    start(pipeIn, pipeOut);
+
+    free(pipeName);
+
+    return 0;
 }
