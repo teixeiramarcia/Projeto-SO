@@ -74,10 +74,19 @@ void sendCommands(int fdIn, int fdOut) {
 
         if (s < 0 || strcmp(input, "exit\n") == 0) {
             sendToServer("exit\n", fdIn, fdOut);
+            write(1, "Bye!\n", 5);
             break;
+        } else if(strcmp(input, "ajuda\n") == 0) {
+            write(1, "tempo-inactividade (em segundos)\n", 33);
+            write(1, "tempo-execucao (em segundos)\n", 29);
+            write(1, "executar p1 | p2 ... | pn\n", 26);
+            write(1, "listar (tarefas em execução)\n", 31);
+            write(1, "terminar n (tarefa n em execução)\n", 36);
+            write(1, "historico (de tarefas terminadas)\n", 34);
+            write(1, "output n (output produzido pela tarefa n já executada)\n", 56);
+        } else {
+            sendToServer(input, fdIn, fdOut);
         }
-
-        sendToServer(input, fdIn, fdOut);
     }
 }
 
