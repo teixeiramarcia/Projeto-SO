@@ -11,6 +11,9 @@
 #define READWRITE 0666
 #define BUFSIZE 4096
 
+int fdIn = -1;
+int fdOut = -1;
+
 char *randomPipeName() {
     int string_length = 10;
     char *string = malloc((string_length + 1) * sizeof(char));
@@ -55,25 +58,32 @@ int validOutput(char *output, int size) {
     return strncmp(output, "Done\n", size) != 0;
 }
 
-void sendToServer(char *input, int fdIn, int fdOut) {
+int sendToServer(char *input) {
     write(fdOut, input, strlen(input));
 
     char output[BUFSIZE];
 
     int size;
-    while ((size = readln(fdIn, output, BUFSIZE)) > 0 && validOutput(output, size)) {
-        write(1, output, size);
+    while ((size = readln(fdIn, output, BUFSIZE)) > 0) {
+        if (strncmp(output, "Done\n", size) == 0) {
+            return -1;
+        } else if (strncmp(output, "close\n", size) == 0) {
+            return -2;
+        } else {
+            write(1, output, size);
+        }
     }
+    return 0;
 }
 
-void sendCommands(int fdIn, int fdOut) {
+void sendCommands() {
     while (1) {
         char input[BUFSIZE];
         write(1, "argus$ ", 7);
         int s = readln(0, input, BUFSIZE);
 
         if (s < 0 || strcmp(input, "exit\n") == 0) {
-            sendToServer("exit\n", fdIn, fdOut);
+            sendToServer("exit\n");
             write(1, "Bye!\n", 5);
             break;
         } else if(strcmp(input, "ajuda\n") == 0) {
@@ -85,7 +95,13 @@ void sendCommands(int fdIn, int fdOut) {
             write(1, "historico (de tarefas terminadas)\n", 34);
             write(1, "output n (output produzido pela tarefa n já executada)\n", 56);
         } else {
-            sendToServer(input, fdIn, fdOut);
+            int i = sendToServer(input);
+            if (i == -2) {
+                write(1, "Bye!\n", 5);
+                close(fdIn);
+                close(fdOut);
+                break;
+            }
         }
     }
 }
@@ -99,8 +115,8 @@ void start(char *in, char *out) {
     strcat(buffer, " ");
     strcat(buffer, out);
 
-    int fdIn = open(in, O_RDWR);
-    int fdOut = open(out, O_RDWR);
+    fdIn = open(in, O_RDWR);
+    fdOut = open(out, O_RDWR);
 
     write(1, "Sending pipe names to server\n", 29);
     write(serverPipe, buffer, 39);
@@ -109,14 +125,29 @@ void start(char *in, char *out) {
 
     char buf[SERVER_ACK_LEN];
     if (read(fdIn, buf, SERVER_ACK_LEN) > 0 && strncmp(buf, SERVER_ACK, SERVER_ACK_LEN) == 0) {
-        sendCommands(fdIn, fdOut);
+        sendCommands();
     }
 
     close(fdIn);
     close(fdOut);
 }
 
+void sig_handler(int signo) {
+    if (signo != SIGINT) {
+        return;
+    }
+    if (fdIn != -1 && fdOut != -1) {
+        sendToServer("exit\n");
+        write(1, "\nBye!\n", 6);
+        close(fdIn);
+        close(fdOut);
+    }
+    _exit(130);
+}
+
 int main() {
+    signal(SIGINT, sig_handler);
+
     write(1, "Starting client\n", 16);
     char *pipeName = randomPipeName();
 
