@@ -1,3 +1,5 @@
+#include "server/tasks.h"
+
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -5,8 +7,6 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdbool.h>
-
-#include "server/tasks.h"
 
 Tasks tasks_create() {
    return (Tasks) {.tasks = NULL, .size = 0, .capacity = 0};
@@ -20,7 +20,7 @@ void tasks_add(Tasks *this, Task task) {
     this->tasks[this->size++] = task;
 }
 
-int countNumberOfChars(long long n) {
+static int countNumberOfChars(long long n) {
     int count = 0;
     while (n != 0) {
         n /= 10;
@@ -37,21 +37,33 @@ void tasks_list(Tasks const *this, int fd) {
     }
 }
 
+static void removeByIndex(Tasks *this, size_t index) {
+    free(this->tasks[index].task);
+    this->tasks[index] = this->tasks[this->size-1];
+    this->size--;
+}
+
 bool kill_task(Tasks *this, long long tid) {
     for (size_t i = 0; i < this->size; ++i) {
         if(this->tasks[i].taskID == tid) {
             kill(this->tasks[i].pid, SIGTERM);
-            memmove(this->tasks + i, this->tasks + i + 1, (this->size - i - 1) * sizeof(Task));
-            this->size--;
+            removeByIndex(this, i);
             return true;
         }
     }
     return false;
 }
 
+void remove_task(Tasks *this, pid_t pid) {
+    for (size_t i = 0; i < this->size; ++i) {
+        if(this->tasks[i].pid == pid) {
+            removeByIndex(this, i);
+        }
+    }
+}
+
 void free_tasks(Tasks *this) {
     for (size_t i = 0; i < this->size; ++i) {
         free(this->tasks[i].task);
     }
-    free(this);
 }

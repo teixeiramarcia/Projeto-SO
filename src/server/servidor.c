@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <server/tasks.h>
+#include <errno.h>
 
 #include "common/protocol.h"
 
@@ -40,6 +41,23 @@ int countWords(const char *command) {
         }
     }
     return counter;
+}
+
+int countNumberOfChars(long long n) {
+    int count = 0;
+    while (n != 0) {
+        n /= 10;
+        ++count;
+    }
+    return count;
+}
+
+void setStatus(long long tid, char *status) {
+    int numCharstID = countNumberOfChars(tid);
+    char *name = malloc(sizeof(char) * (strlen("/tmp/_status") + numCharstID + 1));
+    sprintf(name, "/tmp/%lld_status", tid);
+    int fd = open(name, O_CREAT | O_WRONLY | O_TRUNC, READWRITE);
+    write(fd, status, strlen(status));
 }
 
 pid_t executeCommand(char* command, int input, int output) {
@@ -77,23 +95,14 @@ int countPipes(const char* buffer) {
     return counter;
 }
 
-int countNumberOfChars(long long n) {
-    int count = 0;
-    while (n != 0) {
-        n /= 10;
-        ++count;
-    }
-    return count;
-}
-
 int createTaskFile(long long tID, int fdOut, char* buf) {
     int numCharstID = countNumberOfChars(tID);
-    char *name = malloc(sizeof(char) * (4 + numCharstID));
+    char *name = malloc(sizeof(char) * (strlen("/tmp/") + numCharstID + 1));
     sprintf(name, "/tmp/%lld", tID);
-    int fdO = open(name, O_CREAT | O_RDWR | O_TRUNC, READWRITE);
+    int fdO = open(name, O_CREAT | O_WRONLY | O_TRUNC, READWRITE);
     free(name);
 
-    char *tid = malloc(sizeof(char) * (14 + numCharstID));
+    char *tid = malloc(sizeof(char) * (strlen("nova tarefa #\n") + numCharstID + 1));
     sprintf(tid, "nova tarefa #%lld\n", tID);
 
 
@@ -120,7 +129,7 @@ void finishExecution(int *p, int fdO) {
     close(p[POSLEITURA]);
 }
 
-pid_t middleMan(int outP1, int inP2, long time) {
+pid_t middleMan(int outP1, int inP2, long time, long long tid) {
     pid_t pid = fork();
     if(pid == 0) {
         char buf[BUFSIZE];
@@ -134,6 +143,7 @@ pid_t middleMan(int outP1, int inP2, long time) {
                 FD_SET(outP1, &set);
                 int res = select(outP1+1, &set, NULL, NULL, &timeout);
                 if (res == 0) {
+                    setStatus(tid, "Max inactivity\n");
                     kill(0, SIGTERM);
                 }
             }
@@ -183,7 +193,7 @@ pid_t executeCommands(char *buf, int fdOut, long time_inactive, long time_exec, 
         if(j%2 == 0) {
             executeCommand(strtoks[j], input, pipes[j][POSESCRITA]);
         } else {
-            middleMan(input, pipes[j][POSESCRITA], time_inactive);
+            middleMan(input, pipes[j][POSESCRITA], time_inactive, tID);
         }
         close(pipes[j][POSESCRITA]);
         if (input != -1) close(input);
@@ -192,23 +202,31 @@ pid_t executeCommands(char *buf, int fdOut, long time_inactive, long time_exec, 
     }
     if(fork() == 0) {
         finishExecution(pipes[numPipes], fdO);
+        _exit(0);
     }
     bool failed = false;
-    signal(SIGALRM, SIG_IGN);
-    alarm(time_exec);
+    if (time_exec != -1) {
+        signal(SIGALRM, SIG_IGN);
+        alarm(time_exec);
+    }
     while (1) {
         int status;
         pid_t res = wait(&status);
-        if (res == 0) break;
-        if(time_exec != -1 && res == -1) {
-            fprintf(stderr, "\n-> Task %lld timed out", tID);
-            kill(0, SIGTERM);
+        if(res == -1) {
+            if (time_exec != -1 && errno == EINTR) {
+                fprintf(stderr, "\n-> Task %lld timed out", tID);
+                setStatus(tID, "Max execution\n");
+                kill(0, SIGTERM);
+            } else {
+                break;
+            }
         }
         if(!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             failed = true;
         }
     }
-    fprintf(stderr, "\n-> Task %lld executed %s", tID, failed ? "unsuccessfully" : "successfully");
+    fprintf(stderr, "\n-> Task %lld executed %s\n", tID, failed ? "unsuccessfully" : "successfully");
+    setStatus(tID,failed? "Crashed" : "Finished");
     _exit(failed ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
@@ -232,17 +250,29 @@ void printHistory(int fdOut) {
     for (int i = 0; i < nextTID; ++i) {
         char *filename = malloc(sizeof(char) * (strlen("/tmp/") + countNumberOfChars(i) + 1));
         sprintf(filename, "/tmp/%d", i);
+        char *reason_file = malloc(sizeof(char) * (strlen("/tmp/_status") + countNumberOfChars(i) + 1));
+        sprintf(reason_file, "/tmp/%d_status", i);
 
         int file = open(filename, O_RDONLY);
+        int reason_file_d = open(reason_file, O_RDONLY);
+
+        if(file < 0 || reason_file_d < 0) {
+            goto CONTINUE;
+        }
         char buf[BUFSIZE];
         int lido = readln(file, buf, BUFSIZE);
-
-        char *printLine = malloc(sizeof(char) * (lido + countNumberOfChars(i) + strlen("#: ") + 1));
-        sprintf(printLine, "#%d: %s", i, buf);
+        char reason[BUFSIZE];
+        int reason_len = readln(reason_file_d, reason, BUFSIZE);
+        reason[reason_len] = '\0';
+        char *printLine = malloc(sizeof(char) * (lido + countNumberOfChars(i) + reason_len + strlen("#, : ") + 1));
+        sprintf(printLine, "#%d, %s: %s", i, reason, buf);
         write(fdOut, printLine, strlen(printLine));
 
         free(printLine);
+        close(reason_file_d);
         close(file);
+CONTINUE:
+        free(reason_file);
         free(filename);
     }
     END_OF_MESSAGE(fdOut);
@@ -321,8 +351,13 @@ void handleClient(char *clientPipes) {
                     WRITE_LITERAL(fdOut, "Task terminated successfully\n");
                 }
             }
-        }
-        else {
+        } else if (startsWith(buf, "executar ", lido)) {
+            char *t = strdup(buf + strlen("executar "));
+            pid_t  pid = executeCommands(buf + strlen("executar "), fdOut, time_inactive, time_exec, nextTID);
+            Task task = (Task) {.pid = pid, .taskID = nextTID, .task = t};
+            nextTID++;
+            tasks_add(&tasks, task);
+        } else {
             char *t = strdup(buf);
             pid_t  pid = executeCommands(buf, fdOut, time_inactive, time_exec, nextTID);
             Task task = (Task) {.pid = pid, .taskID = nextTID, .task = t};
@@ -330,7 +365,10 @@ void handleClient(char *clientPipes) {
             tasks_add(&tasks, task);
         }
         int status;
-        while(waitpid(-1, &status, WNOHANG) > 0);
+        pid_t pid;
+        while((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+            remove_task(&tasks, pid);
+        }
     }
 }
 
