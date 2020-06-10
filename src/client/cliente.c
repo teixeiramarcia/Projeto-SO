@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <signal.h>
 
 #include "common/protocol.h"
 
@@ -41,7 +42,7 @@ ssize_t readln(int fildes, char *buf, size_t nbyte) {
         int rd = read(fildes, &bufI, 1);
 
         if (rd == 0) {
-            return i;
+            return 0;
         }
 
         buf[i] = bufI;
@@ -82,7 +83,7 @@ void sendCommands() {
         write(1, "argus$ ", 7);
         int s = readln(0, input, BUFSIZE);
 
-        if (s < 0 || strcmp(input, "exit\n") == 0) {
+        if (s <= 0 || strcmp(input, "exit\n") == 0) {
             sendToServer("exit\n");
             write(1, "Bye!\n", 5);
             break;
@@ -94,7 +95,7 @@ void sendCommands() {
             write(1, "terminar n (tarefa n em execução)\n", 36);
             write(1, "historico (de tarefas terminadas)\n", 34);
             write(1, "output n (output produzido pela tarefa n já executada)\n", 56);
-        } else {
+        } else if (strlen(input) > 1) {
             int i = sendToServer(input);
             if (i == -2) {
                 write(1, "Bye!\n", 5);

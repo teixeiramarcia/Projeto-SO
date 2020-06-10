@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <sys/select.h>
+#include <assert.h>
+#include <signal.h>
 
 #include "common/protocol.h"
 
@@ -37,7 +40,7 @@ int countWords(const char *command) {
     return counter;
 }
 
-void executeCommand(char* command, int input, int output) {
+pid_t executeCommand(char* command, int input, int output) {
     int words = countWords(command);
     char *args[words + 1];
     char* line = strtok(command, " ");
@@ -46,27 +49,22 @@ void executeCommand(char* command, int input, int output) {
         line = strtok(NULL, " ");
     }
     args[words] = NULL;
-
-    if (fork() == 0) {
+    pid_t pid = fork();
+    if (pid == 0) {
         if (input != -1) {
             dup2(input, 0);
+            fprintf(stderr, "C [%d] close %d\n", getpid(), input);
             close(input);
+        } else {
+            assert(setsid() == getpid());
         }
         dup2(output, 1);
+        fprintf(stderr, "C [%d] close %d\n", getpid(), output);
         close(output);
         execvp(args[0], args);
         _exit(1);
     }
-
-    int status;
-    wait(&status);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        write(1, "Error: command execution failed.\n", 33);
-    }
-
-    if (input != -1) {
-        close(input);
-    }
+    return pid;
 }
 
 int countPipes(const char* buffer) {
@@ -126,47 +124,89 @@ void finishExecution(int *p, int fdOut, int fdO) {
     close(p[POSLEITURA]);
 }
 
-void executeCommands(char *buf, char* out) {
+pid_t middleMan(int outP1, int inP2, long time) {
+    pid_t pid = fork();
+    if(pid == 0) {
+        char buf[BUFSIZE];
+        while(1) {
+            if (time > 0) {
+                struct timeval timeout;
+                timeout.tv_sec = time;
+                timeout.tv_usec = 0;
+                fd_set set;
+                FD_SET(outP1, &set);
+                int res = select(outP1+1, &set, NULL, NULL, &timeout);
+                if (res == 0) {
+                    kill(0, SIGTERM);
+                }
+            }
+            int lido = read(outP1, buf, BUFSIZE);
+            if(lido > 0) {
+                write(inP2, buf, lido);
+            } else {
+                break;
+            }
+        }
+        fprintf(stderr, "[%d] close %d\n", getpid(), outP1);
+        close(outP1);
+        fprintf(stderr, "[%d] close %d\n", getpid(), inP2);
+        close(inP2);
+        _exit(0);
+    }
+    return pid;
+}
+
+void executeCommands(char *buf, char* out, long time) {
     long long tID = nextTID++;
     int fdOut = open(out, O_RDWR);
-    int numPipes = countPipes(buf);
-    int pipes[numPipes][2];
-    char* strtoks[numPipes + 1];
+    int numPipes = countPipes(buf) * 2;
+    int pipes[numPipes + 1][2];
+    char *strtoks[numPipes + 1];
 
     int fdO = createTaskFile(tID, fdOut, buf);
 
+    for (int l = 0; l <= numPipes; ++l) {
+        pipes[l][0] = 0;
+        pipes[l][1] = 0;
+    }
+
     strtoks[0] = strtok(buf, "|");
-    for (int i = 0; i < numPipes; i++) {
-        pipe(pipes[i]);
-        strtoks[i+1] = strtok(NULL, "|");
-    }
-
-    int j;
-    for (j = 0; j < numPipes; ++j) {
-        int input = pipes[j-1][POSLEITURA];
-        if(j == 0) {
-            input = -1;
+    for (int i = 1; i <= numPipes; i++) {
+        if(i%2 == 0) {
+            strtoks[i] = strtok(NULL, "|");
+        } else {
+            strtoks[i] = NULL;
         }
-        executeCommand(strtoks[j], input, pipes[j][POSESCRITA]);
+    }
+    int input = -1;
+    pid_t firstPid;
+    for (int j = 0; j <= numPipes; ++j) {
+        pipe(pipes[j]);
+        fprintf(stderr, "creating %d, %d\n", pipes[j][0], pipes[j][1]);
+        pid_t pid;
+        if(j%2 == 0) {
+            fprintf(stderr, "executing: %s\n", strtoks[j]);
+            pid = executeCommand(strtoks[j], input, pipes[j][POSESCRITA]);
+            if (input == -1) firstPid = pid;
+        } else {
+            fprintf(stderr, "executing middleman\n");
+            pid = middleMan(input, pipes[j][POSESCRITA], time);
+        }
+        if (input != -1) setpgid(pid, firstPid);
+        fprintf(stderr, "close %d\n", pipes[j][1]);
         close(pipes[j][POSESCRITA]);
+        fprintf(stderr, "close %d\n", input);
+        if (input != -1) close(input);
+
+        input = pipes[j][POSLEITURA];
     }
-
-    int input = pipes[j-1][POSLEITURA];
-    if(j == 0) {
-        input = -1;
-    }
-    int p[2];
-    pipe(p);
-
-    executeCommand(strtoks[j], input, p[POSESCRITA]);
-
-    finishExecution(p, fdOut, fdO);
+    finishExecution(pipes[numPipes], fdOut, fdO);
 }
 
 void sendOutput(char *buf, char* out) {
     int pip = open(out, O_RDWR);
 
-    char *filename = malloc(sizeof(char) * (4 + strlen(buf)));
+    char *filename = malloc(sizeof(char) * (6 + strlen(buf)));
     sprintf(filename, "/tmp/%s", buf);
 
     int file = open(filename, O_RDONLY);
@@ -229,6 +269,7 @@ void printHistory(char *out) {
 void handleClient(char clientPipes[39]) {
     write(1, "\n\nA client connected\n", 21);
 
+    long time = -1;
     char *out = clientPipes;
     char *in = strchr(clientPipes, ' ');
     *in = '\0';
@@ -256,9 +297,20 @@ void handleClient(char clientPipes[39]) {
             sendOutput(buf + 7, out);
         } else if (strncmp(buf, "historico", 9) == 0) {
             printHistory(out);
+        } else if (strncmp(buf, "tempo-inatividade", 17) == 0) {
+            fdOut = open(out, O_WRONLY);
+            char *endpointer = NULL;
+            long seconds = strtol(buf + 18, &endpointer, 10);
+            if (seconds == 0 && (buf + 18) == endpointer) {
+                write(fdOut, "Dude, thats not a  number\n", 26);
+            } else {
+                write(fdOut, "Ta\n", 3);
+                time = seconds;
+            }
+            close(fdOut);
         }
         else {
-            executeCommands(buf, out);
+            executeCommands(buf, out, time);
         }
     }
 }
