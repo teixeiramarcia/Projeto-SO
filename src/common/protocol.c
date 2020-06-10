@@ -1,8 +1,7 @@
 #include <stddef.h>
-#include <ntsid.h>
 #include <zconf.h>
 
-ssize_t readMsg(int fildes, char *buf, size_t nbyte) { //TODO - IDK WHAT THIS IS FOR
+ssize_t readMsg(int fildes, char *buf, size_t nbyte) {
     for (size_t i = 0; i < nbyte; i++) {
         char bufI;
         int rd = read(fildes, &bufI, 1);
