@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <server/tasks.h>
 
 #include "common/protocol.h"
 
@@ -55,8 +56,6 @@ pid_t executeCommand(char* command, int input, int output) {
         if (input != -1) {
             dup2(input, 0);
             close(input);
-        } else {
-            assert(setsid() == getpid());
         }
         dup2(output, 1);
         close(output);
@@ -125,6 +124,7 @@ pid_t middleMan(int outP1, int inP2, long time) {
     pid_t pid = fork();
     if(pid == 0) {
         char buf[BUFSIZE];
+
         while(1) {
             if (time > 0) {
                 struct timeval timeout;
@@ -151,8 +151,13 @@ pid_t middleMan(int outP1, int inP2, long time) {
     return pid;
 }
 
-void executeCommands(char *buf, int fdOut, long time) {
-    long long tID = nextTID++;
+pid_t executeCommands(char *buf, int fdOut, long time_inactive, long time_exec, long long tID) {
+    pid_t exec_pid = fork();
+    if(exec_pid != 0) {
+       return exec_pid;
+    }
+    assert(setsid() == getpid());
+
     int numPipes = countPipes(buf) * 2;
     int pipes[numPipes + 1][2];
     char *strtoks[numPipes + 1];
@@ -173,23 +178,38 @@ void executeCommands(char *buf, int fdOut, long time) {
         }
     }
     int input = -1;
-    pid_t firstPid;
     for (int j = 0; j <= numPipes; ++j) {
         pipe(pipes[j]);
-        pid_t pid;
         if(j%2 == 0) {
-            pid = executeCommand(strtoks[j], input, pipes[j][POSESCRITA]);
-            if (input == -1) firstPid = pid;
+            executeCommand(strtoks[j], input, pipes[j][POSESCRITA]);
         } else {
-            pid = middleMan(input, pipes[j][POSESCRITA], time);
+            middleMan(input, pipes[j][POSESCRITA], time_inactive);
         }
-        if (input != -1) setpgid(pid, firstPid);
         close(pipes[j][POSESCRITA]);
         if (input != -1) close(input);
 
         input = pipes[j][POSLEITURA];
     }
-    finishExecution(pipes[numPipes], fdO);
+    if(fork() == 0) {
+        finishExecution(pipes[numPipes], fdO);
+    }
+    bool failed = false;
+    signal(SIGALRM, SIG_IGN);
+    alarm(time_exec);
+    while (1) {
+        int status;
+        pid_t res = wait(&status);
+        if (res == 0) break;
+        if(time_exec != -1 && res == -1) {
+            fprintf(stderr, "\n-> Task %lld timed out", tID);
+            kill(0, SIGTERM);
+        }
+        if(!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            failed = true;
+        }
+    }
+    fprintf(stderr, "\n-> Task %lld executed %s", tID, failed ? "unsuccessfully" : "successfully");
+    _exit(failed ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
 void sendOutput(char *buf, int fdOut) {
@@ -239,7 +259,9 @@ bool startsWith(char *buf, char *string, size_t size) {
 void handleClient(char *clientPipes) {
     WRITE_LITERAL(1, "\n\nA client connected\n");
 
-    long time = -1;
+    Tasks tasks = tasks_create();
+    long time_inactive = -1;
+    long time_exec = -1;
     char *out = clientPipes;
     char *in = strchr(clientPipes, ' ');
     *in = '\0';
@@ -260,6 +282,7 @@ void handleClient(char *clientPipes) {
             WRITE_LITERAL(fdOut, CLOSE);
             close(fdIn);
             close(fdOut);
+            free_tasks(&tasks);
             break;
         } else if (startsWith(buf, "output ", lido)) {
             sendOutput(buf + 7, fdOut);
@@ -272,12 +295,42 @@ void handleClient(char *clientPipes) {
                 WRITE_LITERAL(fdOut, "Not a valid number, try again.\n");
             } else {
                 WRITE_LITERAL(fdOut, "Got it, thanks!\n");
-                time = seconds;
+                time_inactive = seconds;
+            }
+        } else if (startsWith(buf, "tempo-execucao ", lido)) {
+            char *endpointer = NULL;
+            long seconds = strtol(buf + strlen("tempo-execucao "), &endpointer, 10);
+            if (seconds == 0 && (buf + strlen("tempo-execucao ")) == endpointer) {
+                WRITE_LITERAL(fdOut, "Not a valid number, try again.\n");
+            } else {
+                WRITE_LITERAL(fdOut, "Got it, thanks!\n");
+                time_exec = seconds;
+            }
+        } else if (startsWith(buf, "listar", lido)) {
+                tasks_list(&tasks, fdOut);
+                END_OF_MESSAGE(fdOut);
+        } else if (startsWith(buf, "terminar", lido)) {
+            char *endpointer = NULL;
+            long long tid = strtoll(buf + strlen("terminar "), &endpointer, 10);
+            if (tid == 0 && (buf + strlen("terminar ")) == endpointer) {
+                WRITE_LITERAL(fdOut, "Not a valid number, try again.\n");
+            } else {
+                if (!kill_task(&tasks, tid)) {
+                    WRITE_LITERAL(fdOut, "Task doesn't exist.\n");
+                } else {
+                    WRITE_LITERAL(fdOut, "Task terminated successfully\n");
+                }
             }
         }
         else {
-            executeCommands(buf, fdOut, time);
+            char *t = strdup(buf);
+            pid_t  pid = executeCommands(buf, fdOut, time_inactive, time_exec, nextTID);
+            Task task = (Task) {.pid = pid, .taskID = nextTID, .task = t};
+            nextTID++;
+            tasks_add(&tasks, task);
         }
+        int status;
+        while(waitpid(-1, &status, WNOHANG) > 0);
     }
 }
 
