@@ -8,6 +8,7 @@
 #include <sys/select.h>
 #include <assert.h>
 #include <signal.h>
+#include <stdbool.h>
 
 #include "common/protocol.h"
 
@@ -53,13 +54,11 @@ pid_t executeCommand(char* command, int input, int output) {
     if (pid == 0) {
         if (input != -1) {
             dup2(input, 0);
-            fprintf(stderr, "C [%d] close %d\n", getpid(), input);
             close(input);
         } else {
             assert(setsid() == getpid());
         }
         dup2(output, 1);
-        fprintf(stderr, "C [%d] close %d\n", getpid(), output);
         close(output);
         execvp(args[0], args);
         _exit(1);
@@ -98,28 +97,26 @@ int createTaskFile(long long tID, int fdOut, char* buf) {
     char *tid = malloc(sizeof(char) * (14 + numCharstID));
     sprintf(tid, "nova tarefa #%lld\n", tID);
 
-    write(fdOut, tid, strlen(tid));
 
-    write(fdO, "> ", 2);
+    write(fdOut, tid, strlen(tid) + 1);
+    free(tid);
+
+    write(fdO, "-> ", 3);
     write(fdO, buf, strlen(buf));
     write(fdO, "\n", 1);
 
     return fdO;
 }
 
-void finishExecution(int *p, int fdOut, int fdO) {
+void finishExecution(int *p, int fdO) {
     int n;
     char results[BUFSIZE];
 
     close(p[POSESCRITA]);
 
     while ((n = read(p[POSLEITURA], results, BUFSIZE)) > 0) {
-        write(fdOut, results, n);
         write(fdO, results, n);
     }
-
-    write(fdOut, "Done\n", 5);
-    close(fdOut);
     close(fdO);
     close(p[POSLEITURA]);
 }
@@ -147,18 +144,15 @@ pid_t middleMan(int outP1, int inP2, long time) {
                 break;
             }
         }
-        fprintf(stderr, "[%d] close %d\n", getpid(), outP1);
         close(outP1);
-        fprintf(stderr, "[%d] close %d\n", getpid(), inP2);
         close(inP2);
         _exit(0);
     }
     return pid;
 }
 
-void executeCommands(char *buf, char* out, long time) {
+void executeCommands(char *buf, int fdOut, long time) {
     long long tID = nextTID++;
-    int fdOut = open(out, O_RDWR);
     int numPipes = countPipes(buf) * 2;
     int pipes[numPipes + 1][2];
     char *strtoks[numPipes + 1];
@@ -182,31 +176,24 @@ void executeCommands(char *buf, char* out, long time) {
     pid_t firstPid;
     for (int j = 0; j <= numPipes; ++j) {
         pipe(pipes[j]);
-        fprintf(stderr, "creating %d, %d\n", pipes[j][0], pipes[j][1]);
         pid_t pid;
         if(j%2 == 0) {
-            fprintf(stderr, "executing: %s\n", strtoks[j]);
             pid = executeCommand(strtoks[j], input, pipes[j][POSESCRITA]);
             if (input == -1) firstPid = pid;
         } else {
-            fprintf(stderr, "executing middleman\n");
             pid = middleMan(input, pipes[j][POSESCRITA], time);
         }
         if (input != -1) setpgid(pid, firstPid);
-        fprintf(stderr, "close %d\n", pipes[j][1]);
         close(pipes[j][POSESCRITA]);
-        fprintf(stderr, "close %d\n", input);
         if (input != -1) close(input);
 
         input = pipes[j][POSLEITURA];
     }
-    finishExecution(pipes[numPipes], fdOut, fdO);
+    finishExecution(pipes[numPipes], fdO);
 }
 
-void sendOutput(char *buf, char* out) {
-    int pip = open(out, O_RDWR);
-
-    char *filename = malloc(sizeof(char) * (6 + strlen(buf)));
+void sendOutput(char *buf, int fdOut) {
+    char *filename = malloc(sizeof(char) * (strlen("/tmp/") + strlen(buf) + 1));
     sprintf(filename, "/tmp/%s", buf);
 
     int file = open(filename, O_RDONLY);
@@ -214,46 +201,23 @@ void sendOutput(char *buf, char* out) {
     int lido;
 
     while ((lido = read(file, buffer, BUFSIZE)) > 0) {
-        write(pip, buffer, lido);
+        write(fdOut, buffer, lido);
     }
-    write(pip, "Done\n", 5);
-
+    END_OF_MESSAGE(fdOut);
     free(filename);
     close(file);
-    close(pip);
 }
 
-ssize_t readln(int fildes, char *buf, size_t nbyte) {
-    for (size_t i = 0; i < nbyte; i++) {
-        char bufI;
-        int rd = read(fildes, &bufI, 1);
-
-        if (rd == 0) {
-            return i;
-        }
-
-        buf[i] = bufI;
-        if (buf[i] == '\n') {
-            buf[i + 1] = '\0';
-            return i + 1;
-        }
-    }
-
-    return nbyte;
-}
-
-void printHistory(char *out) {
-    int fdOut = open(out, O_RDWR);
-
+void printHistory(int fdOut) {
     for (int i = 0; i < nextTID; ++i) {
-        char *filename = malloc(sizeof(char) * (4 + countNumberOfChars(i)));
+        char *filename = malloc(sizeof(char) * (strlen("/tmp/") + countNumberOfChars(i) + 1));
         sprintf(filename, "/tmp/%d", i);
 
         int file = open(filename, O_RDONLY);
         char buf[BUFSIZE];
         int lido = readln(file, buf, BUFSIZE);
 
-        char *printLine = malloc(sizeof(char) * (lido + countNumberOfChars(i) + 3));
+        char *printLine = malloc(sizeof(char) * (lido + countNumberOfChars(i) + strlen("#: ") + 1));
         sprintf(printLine, "#%d: %s", i, buf);
         write(fdOut, printLine, strlen(printLine));
 
@@ -261,13 +225,19 @@ void printHistory(char *out) {
         close(file);
         free(filename);
     }
-
-    write(fdOut, "Done\n", 5);
-    close(fdOut);
+    END_OF_MESSAGE(fdOut);
 }
 
-void handleClient(char clientPipes[39]) {
-    write(1, "\n\nA client connected\n", 21);
+bool startsWith(char *buf, char *string, size_t size) {
+    size_t len = strlen(string);
+    if(len > size) {
+        return false;
+    }
+    return strncmp(buf, string, len) == 0;
+}
+
+void handleClient(char *clientPipes) {
+    WRITE_LITERAL(1, "\n\nA client connected\n");
 
     long time = -1;
     char *out = clientPipes;
@@ -275,59 +245,54 @@ void handleClient(char clientPipes[39]) {
     *in = '\0';
     in += 1;
 
-    int fdOut = open(out, O_RDWR);
     int fdIn = open(in, O_RDWR);
+    int fdOut = open(out, O_RDWR);
 
-    write(fdOut, SERVER_ACK, SERVER_ACK_LEN);
-    close(fdOut);
-    write(1, "Ready for input\n", 16);
+    WRITE_LITERAL(fdOut, SERVER_ACK);
+    WRITE_LITERAL(1, "Ready for input\n");
 
     char buf[BUFSIZE];
 
-    while (read(fdIn, buf, BUFSIZE) > 0) {
+    int lido;
+    while ((lido = read(fdIn, buf, BUFSIZE)) > 0) {
         strip_extra_spaces(buf);
-
-        if (strncmp(buf, "exit", 4) == 0) {
-            fdOut = open(out, O_RDWR);
-            write(fdOut, "Done\n", 5);
+        if (startsWith(buf, "exit", lido)) {
+            WRITE_LITERAL(fdOut, CLOSE);
             close(fdIn);
             close(fdOut);
             break;
-        } else if (strncmp(buf, "output ", 7) == 0) {
-            sendOutput(buf + 7, out);
-        } else if (strncmp(buf, "historico", 9) == 0) {
-            printHistory(out);
-        } else if (strncmp(buf, "tempo-inatividade", 17) == 0) {
-            fdOut = open(out, O_WRONLY);
+        } else if (startsWith(buf, "output ", lido)) {
+            sendOutput(buf + 7, fdOut);
+        } else if (startsWith(buf, "historico", lido)) {
+            printHistory(fdOut);
+        } else if (startsWith(buf, "tempo-inatividade ", lido)) {
             char *endpointer = NULL;
-            long seconds = strtol(buf + 18, &endpointer, 10);
-            if (seconds == 0 && (buf + 18) == endpointer) {
-                write(fdOut, "Dude, thats not a  number\n", 26);
+            long seconds = strtol(buf + strlen("tempo-inatividade "), &endpointer, 10);
+            if (seconds == 0 && (buf + strlen("tempo-inatividade ")) == endpointer) {
+                WRITE_LITERAL(fdOut, "Not a valid number, try again.\n");
             } else {
-                write(fdOut, "Ta\n", 3);
+                WRITE_LITERAL(fdOut, "Got it, thanks!\n");
                 time = seconds;
             }
-            close(fdOut);
         }
         else {
-            executeCommands(buf, out, time);
+            executeCommands(buf, fdOut, time);
         }
     }
 }
 
 int main() {
-    write(1, "Starting server\n", 16);
+    WRITE_LITERAL(1, "Starting server\n");
     char *serverPipeName = "/tmp/server";
     mkfifo(serverPipeName, READWRITE);
 
-    write(1, "Opening serverPipe\n", 19);
-    char clientPipes[39];
+    WRITE_LITERAL(1, "Opening serverPipe\n");
+    char clientPipes[CLIENTPIPES_LEN];
     int serverPipe = open(serverPipeName, O_RDWR);
 
-    write(1, "Reading from serverPipe\n", 24);
-    while (read(serverPipe, clientPipes, 39) == 39) {
+    WRITE_LITERAL(1, "Reading from serverPipe\n");
+    while (read(serverPipe, clientPipes, CLIENTPIPES_LEN) == CLIENTPIPES_LEN) {
         handleClient(clientPipes);
     }
-
     close(serverPipe);
 }

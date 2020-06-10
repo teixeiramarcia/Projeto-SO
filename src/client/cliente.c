@@ -36,44 +36,19 @@ void createPipes(char *pipeName, char *pipeIn, char *pipeOut) {
     mkfifo(pipeOut, READWRITE);
 }
 
-ssize_t readln(int fildes, char *buf, size_t nbyte) {
-    for (size_t i = 0; i < nbyte; i++) {
-        char bufI;
-        int rd = read(fildes, &bufI, 1);
-
-        if (rd == 0) {
-            return 0;
-        }
-
-        buf[i] = bufI;
-        if (buf[i] == '\n') {
-            buf[i + 1] = '\0';
-            return i + 1;
-        }
-    }
-
-    return nbyte;
-}
-
-int validOutput(char *output, int size) {
-    return strncmp(output, "Done\n", size) != 0;
-}
-
 int sendToServer(char *input) {
     write(fdOut, input, strlen(input));
 
     char output[BUFSIZE];
-
     int size;
-    while ((size = readln(fdIn, output, BUFSIZE)) > 0) {
-        if (strncmp(output, "Done\n", size) == 0) {
-            return -1;
-        } else if (strncmp(output, "close\n", size) == 0) {
+    do {
+        size = readMsg(fdIn, output, BUFSIZE);
+        if (strncmp(output, CLOSE, size) == 0) {
             return -2;
         } else {
             write(1, output, size);
         }
-    }
+    } while (output[size-1] != '\0');
     return 0;
 }
 
@@ -83,11 +58,11 @@ void sendCommands() {
         write(1, "argus$ ", 7);
         int s = readln(0, input, BUFSIZE);
 
-        if (s <= 0 || strcmp(input, "exit\n") == 0) {
+        if (s <= 0 || strncmp(input, "exit\n", s) == 0) {
             sendToServer("exit\n");
             write(1, "Bye!\n", 5);
             break;
-        } else if(strcmp(input, "ajuda\n") == 0) {
+        } else if(strncmp(input, "ajuda\n", s) == 0) {
             write(1, "tempo-inactividade (em segundos)\n", 33);
             write(1, "tempo-execucao (em segundos)\n", 29);
             write(1, "executar p1 | p2 ... | pn\n", 26);
@@ -95,10 +70,10 @@ void sendCommands() {
             write(1, "terminar n (tarefa n em execução)\n", 36);
             write(1, "historico (de tarefas terminadas)\n", 34);
             write(1, "output n (output produzido pela tarefa n já executada)\n", 56);
-        } else if (strlen(input) > 1) {
+        } else if (s > 1) {
             int i = sendToServer(input);
             if (i == -2) {
-                write(1, "Bye!\n", 5);
+                WRITE_LITERAL(1, "Bye!\n");
                 close(fdIn);
                 close(fdOut);
                 break;
@@ -110,17 +85,17 @@ void sendCommands() {
 void start(char *in, char *out) {
     write(1, "Opening server pipe\n", 20);
     int serverPipe = open("/tmp/server", O_WRONLY);
-    char buffer[39] = "";
+    char buffer[CLIENTPIPES_LEN] = "";
 
     strcat(buffer, in);
     strcat(buffer, " ");
     strcat(buffer, out);
 
-    fdIn = open(in, O_RDWR);
     fdOut = open(out, O_RDWR);
+    fdIn = open(in, O_RDWR);
 
     write(1, "Sending pipe names to server\n", 29);
-    write(serverPipe, buffer, 39);
+    write(serverPipe, buffer, CLIENTPIPES_LEN);
 
     close(serverPipe);
 
