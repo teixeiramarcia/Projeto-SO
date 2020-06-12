@@ -13,6 +13,7 @@
 #include <errno.h>
 
 #include "common/protocol.h"
+#include "common/common.h"
 
 #define READWRITE 0666
 #define BUFSIZE 4096
@@ -41,15 +42,6 @@ int countWords(const char *command) {
         }
     }
     return counter;
-}
-
-int countNumberOfChars(long long n) {
-    int count = 0;
-    while (n != 0) {
-        n /= 10;
-        ++count;
-    }
-    return count;
 }
 
 void setStatus(long long tid, char *status) {

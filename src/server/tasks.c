@@ -1,4 +1,5 @@
 #include "server/tasks.h"
+#include "common/common.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -18,15 +19,6 @@ void tasks_add(Tasks *this, Task task) {
         this->tasks = realloc(this->tasks, this->capacity * sizeof(Task));
     }
     this->tasks[this->size++] = task;
-}
-
-static int countNumberOfChars(long long n) {
-    int count = 0;
-    while (n != 0) {
-        n /= 10;
-        ++count;
-    }
-    return count;
 }
 
 void tasks_list(Tasks const *this, int fd) {

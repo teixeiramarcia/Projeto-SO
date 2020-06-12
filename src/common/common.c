@@ -1,5 +1,6 @@
-#include <stddef.h>
 #include <zconf.h>
+
+#include "common/common.h"
 
 ssize_t readMsg(int fildes, char *buf, size_t nbyte) {
     for (size_t i = 0; i < nbyte; i++) {
@@ -39,3 +40,11 @@ ssize_t readln(int fildes, char *buf, size_t nbyte) {
     return nbyte;
 }
 
+int countNumberOfChars(long long n) {
+    int count = 0;
+    while (n != 0) {
+        n /= 10;
+        ++count;
+    }
+    return count;
+}

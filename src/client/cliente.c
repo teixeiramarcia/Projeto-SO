@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <signal.h>
 
+#include "common/common.h"
 #include "common/protocol.h"
 
 #define READWRITE 0666
