@@ -59,7 +59,7 @@ int sendToServer(char *input) {
 void sendCommands() {
     while (1) {
         char input[BUFSIZE];
-        WRITE_LITERAL(1, "argus$ ");
+        WRITE_LITERAL(1, "\nargus$ ");
         int s = readln(0, input, BUFSIZE);
 
         if (s <= 0 || strncmp(input, "exit\n", s) == 0) {
