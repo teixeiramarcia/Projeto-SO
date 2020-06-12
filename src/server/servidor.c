@@ -127,15 +127,17 @@ pid_t middleMan(int outP1, int inP2, long time, long long tid) {
         char buf[BUFSIZE];
 
         while(1) {
-            if (time > 0) {
+            if (time > 0) { //se o tempo de inatividade for definido
                 struct timeval timeout;
                 timeout.tv_sec = time;
                 timeout.tv_usec = 0;
-                fd_set set;
-                FD_SET(outP1, &set);
-                int res = select(outP1+1, &set, NULL, NULL, &timeout);
-                if (res == 0) {
-                    setStatus(tid, "Max inactivity\n");
+                fd_set set; //set de fd's
+                FD_SET(outP1, &set); //adiciona o outP1 ao set
+                int res = select(outP1+1, &set, NULL, NULL, &timeout); //recebe (neste caso) 1 file descriptor e espera
+                                                                       // que esteja pronto para ser lido
+                if (res == 0) {                                        // res = 0 -> ultrapassou o timeout
+                    fprintf(stderr, "\n-> Task %lld timed out (inactivity time exceeded)\n", tid);
+                    setStatus(tid, "Max inactivity");
                     kill(0, SIGTERM);
                 }
             }
@@ -153,12 +155,23 @@ pid_t middleMan(int outP1, int inP2, long time, long long tid) {
     return pid;
 }
 
+long long TID;
+
+void timeout_handler(int signo) {
+    if (signo != SIGALRM) {
+        return;
+    }
+    fprintf(stderr, "\n-> Task %lld timed out (execution time exceeded)\n", TID);
+    setStatus(TID, "Max execution");
+    kill(0, SIGTERM);
+}
+
 pid_t executeCommands(char *buf, int fdOut, long time_inactive, long time_exec, long long tID) {
     pid_t exec_pid = fork();
     if(exec_pid != 0) {
        return exec_pid;
     }
-    assert(setsid() == getpid());
+    setsid(); //cria um novo grupo de processos e coloca este processo como lider do grupo
 
     int numPipes = countPipes(buf) * 2;
     int pipes[numPipes + 1][2];
@@ -197,21 +210,16 @@ pid_t executeCommands(char *buf, int fdOut, long time_inactive, long time_exec, 
         _exit(0);
     }
     bool failed = false;
+    TID = tID;
     if (time_exec != -1) {
-        signal(SIGALRM, SIG_IGN);
+        signal(SIGALRM, timeout_handler);
         alarm(time_exec);
     }
     while (1) {
         int status;
         pid_t res = wait(&status);
         if(res == -1) {
-            if (time_exec != -1 && errno == EINTR) {
-                fprintf(stderr, "\n-> Task %lld timed out", tID);
-                setStatus(tID, "Max execution\n");
-                kill(0, SIGTERM);
-            } else {
-                break;
-            }
+            break;
         }
         if(!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             failed = true;
