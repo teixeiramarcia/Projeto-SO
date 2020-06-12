@@ -55,21 +55,21 @@ int sendToServer(char *input) {
 void sendCommands() {
     while (1) {
         char input[BUFSIZE];
-        write(1, "argus$ ", 7);
+        WRITE_LITERAL(1, "argus$ ");
         int s = readln(0, input, BUFSIZE);
 
         if (s <= 0 || strncmp(input, "exit\n", s) == 0) {
             sendToServer("exit\n");
-            write(1, "Bye!\n", 5);
+            WRITE_LITERAL(1, "Bye!\n");
             break;
         } else if(strncmp(input, "ajuda\n", s) == 0) {
-            write(1, "tempo-inactividade (em segundos)\n", 33);
-            write(1, "tempo-execucao (em segundos)\n", 29);
-            write(1, "executar p1 | p2 ... | pn\n", 26);
-            write(1, "listar (tarefas em execução)\n", 31);
-            write(1, "terminar n (tarefa n em execução)\n", 36);
-            write(1, "historico (de tarefas terminadas)\n", 34);
-            write(1, "output n (output produzido pela tarefa n já executada)\n", 56);
+            WRITE_LITERAL(1, "tempo-inactividade (em segundos)\n");
+            WRITE_LITERAL(1, "tempo-execucao (em segundos)\n");
+            WRITE_LITERAL(1, "executar p1 | p2 ... | pn\n");
+            WRITE_LITERAL(1, "listar (tarefas em execução)\n");
+            WRITE_LITERAL(1, "terminar n (tarefa n em execução)\n");
+            WRITE_LITERAL(1, "historico (de tarefas terminadas)\n");
+            WRITE_LITERAL(1, "output n (output produzido pela tarefa n já executada)\n");
         } else if (s > 1) {
             int i = sendToServer(input);
             if (i == -2) {
@@ -83,7 +83,7 @@ void sendCommands() {
 }
 
 void start(char *in, char *out) {
-    write(1, "Opening server pipe\n", 20);
+    WRITE_LITERAL(1, "Opening server pipe\n");
     int serverPipe = open("/tmp/server", O_WRONLY);
     char buffer[CLIENTPIPES_LEN] = "";
 
@@ -94,7 +94,7 @@ void start(char *in, char *out) {
     fdOut = open(out, O_RDWR);
     fdIn = open(in, O_RDWR);
 
-    write(1, "Sending pipe names to server\n", 29);
+    WRITE_LITERAL(1, "Sending pipe names to server\n");
     write(serverPipe, buffer, CLIENTPIPES_LEN);
 
     close(serverPipe);
@@ -114,7 +114,7 @@ void sig_handler(int signo) {
     }
     if (fdIn != -1 && fdOut != -1) {
         sendToServer("exit\n");
-        write(1, "\nBye!\n", 6);
+        WRITE_LITERAL(1, "\nBye!\n");
         close(fdIn);
         close(fdOut);
     }
@@ -124,7 +124,7 @@ void sig_handler(int signo) {
 int main() {
     signal(SIGINT, sig_handler);
 
-    write(1, "Starting client\n", 16);
+    WRITE_LITERAL(1, "Starting client\n");
     char *pipeName = randomPipeName();
 
     char pipeIn[18] = "";

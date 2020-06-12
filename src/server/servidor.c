@@ -310,6 +310,8 @@ void handleClient(char *clientPipes) {
         strip_extra_spaces(buf);
         if (startsWith(buf, "exit", lido)) {
             WRITE_LITERAL(fdOut, CLOSE);
+            WRITE_LITERAL(1, "\nClient exited.\n\n");
+            WRITE_LITERAL(1, "-------->>> READY FOR A NEW CLIENT <<<--------");
             close(fdIn);
             close(fdOut);
             free_tasks(&tasks);
