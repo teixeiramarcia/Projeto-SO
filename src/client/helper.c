@@ -7,7 +7,7 @@ void helper() {
     WRITE_LITERAL(1,"\n---->>>> Here's a list of the avalaible commands! <<<<----\n\n");
 
     // Tempo Inactividade
-    WRITE_LITERAL(1," -i <argumento1>, tempo-inactividade <argumento1>\n-> Define o tempo máximo, em segundos, de inactividade de comunicação num pipe anónimo\n\n");
+    WRITE_LITERAL(1," -i <argumento1>, tempo-inatividade <argumento1>\n-> Define o tempo máximo, em segundos, de inatividade de comunicação num pipe anónimo\n\n");
 
     // Tempo Execução
     WRITE_LITERAL(1," -m <argumento1>, tempo-execucao <argumento1>\n-> Define o tempo máximo (segundos) de execução de uma tarefa\n\n");
