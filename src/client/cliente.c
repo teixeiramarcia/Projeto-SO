@@ -9,6 +9,7 @@
 
 #include "common/common.h"
 #include "common/protocol.h"
+#include "common//helper.h"
 
 #define READWRITE 0666
 #define BUFSIZE 4096
@@ -66,13 +67,7 @@ void sendCommands() {
             WRITE_LITERAL(1, "Bye!\n");
             break;
         } else if(strncmp(input, "ajuda\n", s) == 0) {
-            WRITE_LITERAL(1, "tempo-inactividade (em segundos)\n");
-            WRITE_LITERAL(1, "tempo-execucao (em segundos)\n");
-            WRITE_LITERAL(1, "executar p1 | p2 ... | pn\n");
-            WRITE_LITERAL(1, "listar (tarefas em execução)\n");
-            WRITE_LITERAL(1, "terminar n (tarefa n em execução)\n");
-            WRITE_LITERAL(1, "historico (de tarefas terminadas)\n");
-            WRITE_LITERAL(1, "output n (output produzido pela tarefa n já executada)\n");
+            helper();
         } else if (s > 1) {
             int i = sendToServer(input);
             if (i == -2) {
