@@ -16,6 +16,8 @@
 int fdIn = -1;
 int fdOut = -1;
 
+void sendCommandLineArguments(int argc, char **argv);
+
 char *randomPipeName() {
     int string_length = 10;
     char *string = malloc((string_length + 1) * sizeof(char));
@@ -83,7 +85,7 @@ void sendCommands() {
     }
 }
 
-void start(char *in, char *out) {
+void initProtocol(char* in, char* out) {
     WRITE_LITERAL(1, "Opening server pipe\n");
     int serverPipe = open("/tmp/server", O_WRONLY);
     char buffer[CLIENTPIPES_LEN] = "";
@@ -101,10 +103,14 @@ void start(char *in, char *out) {
     close(serverPipe);
 
     char buf[SERVER_ACK_LEN];
-    if (read(fdIn, buf, SERVER_ACK_LEN) > 0 && strncmp(buf, SERVER_ACK, SERVER_ACK_LEN) == 0) {
-        sendCommands();
+    if (read(fdIn, buf, SERVER_ACK_LEN) <= 0 || strncmp(buf, SERVER_ACK, SERVER_ACK_LEN) != 0) {
+        WRITE_LITERAL(2, "Failed to connect\n");
+        exit(1);
     }
+}
 
+void start() {
+    sendCommands();
     close(fdIn);
     close(fdOut);
 }
@@ -122,7 +128,43 @@ void sig_handler(int signo) {
     _exit(130);
 }
 
-int main() {
+void sendCommandLineArguments(int argc, char **argv) {
+    char* command;
+    if (strcmp(argv[1], "-i") == 0 && argc > 2) {
+        command = malloc(strlen("tempo-inatividade") + strlen(argv[2]) + 3);
+        sprintf(command, "tempo-inatividade %s\n", argv[2]);
+    } else if (strcmp(argv[1], "-m") == 0 && argc > 2) {
+        command = malloc(strlen("tempo-execucao") + strlen(argv[2]) + 3);
+        sprintf(command, "tempo-execucao %s\n", argv[2]);
+    } else if (strcmp(argv[1], "-e") == 0 && argc > 2) {
+        command = malloc(strlen("executar") + strlen(argv[2]) + 3);
+        sprintf(command, "executar %s\n", argv[2]);
+    } else if (strcmp(argv[1], "-l") == 0) {
+        command = malloc(strlen("listar") + 2);
+        strcpy(command, "listar\n");
+    } else if (strcmp(argv[1], "-t") == 0 && argc > 2) {
+        command = malloc(strlen("terminar") + strlen(argv[2]) + 3);
+        sprintf(command, "terminar %s\n", argv[2]);
+    } else if (strcmp(argv[1], "-r") == 0) {
+        command = malloc(strlen("historico") + 2);
+        strcpy(command, "historico\n");
+    } else if (strcmp(argv[1], "-h") == 0) {
+        command = malloc(strlen("ajuda") + 2);
+        strcpy(command, "ajuda\n");
+    } else if (strcmp(argv[1], "-o") == 0 && argc > 2) {
+        command = malloc(strlen("output") + strlen(argv[2]) + 3);
+        sprintf(command, "output %s\n", argv[2]);
+    } else {
+        WRITE_LITERAL(1, "Comando inválido");
+        sendToServer("exit\n");
+        return;
+    }
+    sendToServer(command);
+    free(command);
+    sendToServer("exit\n");
+}
+
+int main(int argc, char* argv[]) {
     signal(SIGINT, sig_handler);
 
     WRITE_LITERAL(1, "Starting client\n");
@@ -133,8 +175,13 @@ int main() {
 
     createPipes(pipeName, pipeIn, pipeOut);
 
-    start(pipeIn, pipeOut);
+    initProtocol(pipeIn, pipeOut);
 
+    if (argc > 1) {
+        sendCommandLineArguments(argc, argv);
+    } else {
+        start();
+    }
     free(pipeName);
 
     return 0;
