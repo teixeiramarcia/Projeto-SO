@@ -2,8 +2,8 @@
 SRC = src
 INCLUDE = include
 CC=gcc
-SERVER = server
-CLIENT = client
+SERVER = argusd
+CLIENT = argus
 
 #Debug or Release
 DEBUG = -Og -g

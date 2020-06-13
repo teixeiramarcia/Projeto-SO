@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <signal.h>
 
+#include "../../argus.h"
 #include "common/common.h"
 #include "common/protocol.h"
 #include "common//helper.h"

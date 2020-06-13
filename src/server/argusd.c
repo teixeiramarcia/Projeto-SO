@@ -6,12 +6,11 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <sys/select.h>
-#include <assert.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <server/tasks.h>
-#include <errno.h>
 
+#include "../../argus.h"
 #include "common/protocol.h"
 #include "common/common.h"
 
@@ -308,7 +307,7 @@ void handleClient(char *clientPipes) {
     int lido;
     while ((lido = read(fdIn, buf, BUFSIZE)) > 0) {
         strip_extra_spaces(buf);
-        if (startsWith(buf, "exit", lido)) {
+        if (strcmp(buf, "exit") == 0) {
             WRITE_LITERAL(fdOut, CLOSE);
             WRITE_LITERAL(1, "\nClient exited.\n\n");
             WRITE_LITERAL(1, "-------->>> READY FOR A NEW CLIENT <<<--------");
@@ -318,33 +317,33 @@ void handleClient(char *clientPipes) {
             break;
         } else if (startsWith(buf, "output ", lido)) {
             sendOutput(buf + 7, fdOut);
-        } else if (startsWith(buf, "historico", lido)) {
+        } else if (strcmp(buf, "historico") == 0) {
             printHistory(fdOut);
         } else if (startsWith(buf, "tempo-inatividade ", lido)) {
-            char *endpointer = NULL;
-            long seconds = strtol(buf + strlen("tempo-inatividade "), &endpointer, 10);
-            if (seconds == 0 && (buf + strlen("tempo-inatividade ")) == endpointer) {
+            long seconds = -1;
+            sscanf(buf, "tempo-inatividade %ld\n", &seconds);
+            if (seconds <= 0) {
                 WRITE_LITERAL(fdOut, "Not a valid number, try again.\n");
             } else {
                 WRITE_LITERAL(fdOut, "Got it, thanks!\n");
                 time_inactive = seconds;
             }
         } else if (startsWith(buf, "tempo-execucao ", lido)) {
-            char *endpointer = NULL;
-            long seconds = strtol(buf + strlen("tempo-execucao "), &endpointer, 10);
-            if (seconds == 0 && (buf + strlen("tempo-execucao ")) == endpointer) {
+            long seconds = -1;
+            sscanf(buf, "tempo-execucao %ld\n", &seconds);
+            if (seconds <= 0) {
                 WRITE_LITERAL(fdOut, "Not a valid number, try again.\n");
             } else {
                 WRITE_LITERAL(fdOut, "Got it, thanks!\n");
                 time_exec = seconds;
             }
-        } else if (startsWith(buf, "listar", lido)) {
+        } else if (strcmp(buf, "listar") == 0) {
                 tasks_list(&tasks, fdOut);
                 END_OF_MESSAGE(fdOut);
         } else if (startsWith(buf, "terminar", lido)) {
-            char *endpointer = NULL;
-            long long tid = strtoll(buf + strlen("terminar "), &endpointer, 10);
-            if (tid == 0 && (buf + strlen("terminar ")) == endpointer) {
+            long long tid = -1;
+            sscanf(buf, "terminar %lld\n", &tid);
+            if (tid == 0) {
                 WRITE_LITERAL(fdOut, "Not a valid number, try again.\n");
             } else {
                 if (!kill_task(&tasks, tid)) {
